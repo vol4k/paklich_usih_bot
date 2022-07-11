@@ -11,27 +11,37 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 def all(update: Update, context: CallbackContext):
     if update.effective_chat.type == constants.CHAT_PRIVATE:
-        message = context.bot.send_message(chat_id=update.effective_chat.id, text="Ну і каго мне тэгаць у асабоўцы?\nДадай мяне ў суполку!")
+        context.bot.send_message(chat_id=update.effective_chat.id, text="Ну і каго мне тэгаць у асабоўцы?\nДадай мяне ў суполку!")
         return
 
     call = " ".join(context.args)
-    tags = ""
+    tagMessages = [""]
     tagsCounter = 0
 
     for administrator in update.effective_chat.get_administrators():
-        tags += administrator.user.mention_markdown() + "\n"
+        if administrator.user.is_bot:
+            continue
+        tagMessages[-1] += "Паклікаў " + administrator.user.mention_markdown() + "\n"
         tagsCounter += 1
         if tagsCounter == 5:
-            message = context.bot.send_message(chat_id=update.effective_chat.id, text=tags, parse_mode="Markdown")
-            message.edit_text(f"🔔 {update.effective_user.mention_markdown()} кліча усіх {call}", parse_mode="Markdown")
             tagsCounter = 0
-            tags = ""
+            tagMessages[-1] += "\nБіп-буп, паведамленне яшчэ не знікла?\nПадаецца хтосьці схапіў бан за флуд, \nпачакай некалькі хвілін і спрабуй яшчэ раз 🤖"
+            tagMessages.append("")
+
+    if "" in tagMessages:
+        tagMessages.remove("")
     
-    if tagsCounter > 0 and tagsCounter < 5:
-        message = context.bot.send_message(chat_id=update.effective_chat.id, text=tags, parse_mode="Markdown")
-        message.edit_text(f"🔔 {update.effective_user.mention_markdown()} кліча усіх {call}", parse_mode="Markdown")    
-    
-    context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.effective_message.message_id)
+    for tags in tagMessages:
+        try:
+            message = context.bot.send_message(chat_id=update.effective_chat.id, text=tags, parse_mode="Markdown", timeout=60)
+            message.edit_text(f"🔔 {update.effective_user.mention_markdown()} кліча усіх {call}", parse_mode="Markdown", timeout=60)
+        except:
+            print("Біп-буп, занадта шмат выклікаў, я зламаўся 🤖")
+
+    try:
+        context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.effective_message.message_id)
+    except:
+        None
 
 def help(update: Update, context: CallbackContext):
     help_text = "Вітанкі! 👋\n\n\
