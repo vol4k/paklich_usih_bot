@@ -1,133 +1,133 @@
-
 from time import sleep
 from threading import Thread
 
 from telegram import Message, Update, constants
 from telegram.ext import Updater, CallbackContext, CommandHandler
 
-TOKEN="PASTE_YOUR_TOKEN_HERE"
+import enum, json, logging
+
+LANGUAGE = "be"
+PREFERENSES = json.load(open("config.json"))
+TOKEN = PREFERENSES["token"]
+MESSAGE = PREFERENSES["messages"][LANGUAGE]
+
+MAX_MENTION_COUNT = 5 # max count of mentions in one message
+
+class sem(enum.Enum):
+    lock = 0
+    unlock = 1
+
+lockedList: list[int] = []
 
 updater = Updater(token=TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
-lockedList: list[int] = []
-
-import logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+
 
 def all(update: Update, context: CallbackContext):
     if update.effective_chat.type == constants.CHAT_PRIVATE:
-        context.bot.send_message(chat_id=update.effective_chat.id, text="Ну і каго мне тэгаць у асабоўцы?\nДадай мяне ў суполку!")
+        context.bot.send_message(chat_id=update.effective_chat.id, text=MESSAGE["private"], parse_mode="Markdown")
         return
 
-    delete_message(update, context)
-
-    if lock(update.effective_chat.id):
-        Thread(target=call_all, args=(update, context)).start()
-
+    if lock(update.effective_chat.id, sem.lock):
+        Thread(target=try_call, args=(update, context)).start()
 
 def help(update: Update, context: CallbackContext):
-    delete_message(update, context)
-
-    if not lock(update.effective_chat.id):
+    if not lock(update.effective_chat.id, sem.lock):
         return
 
-    help_text = "Вітанкі! 👋\n\n\
-Я дапамагу табе паклікаць усіх, хто знаходзіцца разам з табой у суполцы.\n\n\
-Але перад тым як я гэта зраблю *дадай мяне ў гэтую суполку* каб я мог рэагаваць на паведамленні, а таксама *прызнач кіраўнікамі ўсіх, каго хочаш тэгаць*. \
-Не абавязкова выдаваць паўнамоцтвы кіраўнікам, галоўнае каб яны мелі статус.\n\
-А вось мне можаш даць *паўнамоцтвы на выдаленне паведамленняў*, калі хочаш, каб я выдаляў звароты да мяне.\n\
-Таксама звяртаю ўвагу на тое, што тэлеграм дазваляе мець толькі 50 кіраўнікоў \
-у адной суполцы, таму ў больш вялікіх суполках табе прыйдзецца добра падумаць каго па выніку мне давядзецца турбаваць\n\n\
-Калі прыйдзе час проста напішы /all у суполцы і я ўсіх паклічу. Апцыянальна можаш пасля /all дадаць свой заклік, напрыклад: `/all шатаць рэжым`"
-
-    context.bot.send_message(chat_id=update.effective_chat.id, text=help_text, parse_mode="Markdown")
-
-    unlock(update.effective_chat.id)
+    context.bot.send_message(chat_id=update.effective_chat.id, text=MESSAGE["help"], parse_mode="Markdown")
+    lock(update.effective_chat.id, sem.unlock)
 
 
-def get_tag_messages(update: Update) -> list[str]:
-    tagMessages = [""]
-    tagsCounter = 0
+
+def get_tag_messages(update: Update, custom_titles: list[str] = []) -> list[str]:
+    mentionMessages = [""]
+    mentionCounter = 0
 
     for administrator in update.effective_chat.get_administrators():
-        if administrator.user.is_bot:
+        if administrator.user.is_bot or custom_titles and administrator.custom_title not in custom_titles:
             continue
-        tagMessages[-1] += "Паклікаў " + administrator.user.mention_markdown() + "\n"
-        tagsCounter += 1
-        if tagsCounter == 5:
-            tagsCounter = 0
-            tagMessages.append("")
 
-    if "" in tagMessages:
-        tagMessages.remove("")
+        mentionMessages[-1] += f"[⭐️](tg://user?id={administrator.user.id})"
+        mentionCounter += 1
+        if mentionCounter == MAX_MENTION_COUNT:
+            mentionCounter = 0
+            mentionMessages.append("")
+
+    if "" in mentionMessages:
+        mentionMessages.remove("")
     
-    return tagMessages
+    return mentionMessages
 
 
-def call_all(update: Update, context: CallbackContext):
-    call = " ".join(context.args)
+def try_call(update: Update, context: CallbackContext):
     messages: list[Message] = []
+    custom_titles: list[str] = []
 
-    tagMessages = get_tag_messages(update)
+    if context.args:
+        custom_titles = ' '.join(context.args).split(', ')
+        
+    tagMessages = get_tag_messages(update, custom_titles)
 
     try:
         for tags in tagMessages:
-            messages.append(message_call(update, context, tags, call))
+            messages.append(call_message(update, context, tags))
     except:
         delete_messages(messages)
-        logging.error("Біп-буп, занадта шмат выклікаў, я зламаўся 🤖")
+        logging.error(MESSAGE["error"])
 
-    message = context.bot.send_message(chat_id=update.effective_chat.id, text=f"*🤖 Біп-буп, праца зроблена.*\n\n_Адыйшоў за гарбаткай ☕️\nПраз хвіліну вярнуся, не сумуйце без мяне 😊_", parse_mode="Markdown")
+    message_context = {
+            "chat_id":update.effective_chat.id, 
+            "parse_mode":"Markdown"
+            }
 
-    sleep(60)
-    message.delete()
-    unlock(update.effective_chat.id)
+    if tagMessages:
+        lock_message = context.bot.send_message(**message_context, text=MESSAGE["lock"])
+        sleep(60)
+        lock_message.delete()
+    else:
+        context.bot.send_message(**message_context, text=MESSAGE["none"])
+
+    lock(update.effective_chat.id, sem.unlock)
 
 
-def message_call(update: Update, context: CallbackContext, tags: str, call: str) -> Message:
-    sleep(2.5)
+def call_message(update: Update, context: CallbackContext, tags: str) -> Message:
+    sleep(1)
 
-    message = context.bot.send_message(chat_id=update.effective_chat.id, text=tags, parse_mode="Markdown", timeout=60)
-    message.edit_text(f"🔔 {update.effective_user.mention_markdown()} кліча усіх {call}", parse_mode="Markdown", timeout=60)
-
-    return message
+    call_message_context = {
+        "chat_id": update.effective_chat.id, 
+        "text": f"{tags}\n\n{MESSAGE['call']}",
+        "parse_mode": "Markdown", 
+        "timeout": 30
+        }
+    
+    return context.bot.send_message(**call_message_context)
 
 
 def delete_messages(messages: list[Message]):
     for message in messages:
-        sleep(1)
         message.delete()
 
 
-def delete_message(update: Update, context: CallbackContext):
-    try:
-        context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.effective_message.message_id)
-    except:
-        None
-
-def lock(chat_id: int) -> bool:
-    if chat_id not in lockedList:
-        lockedList.append(chat_id)
-        return True
-    else:
-        return False
-
-def unlock(chat_id: int) -> bool:
-    if chat_id in lockedList:
-        lockedList.remove(chat_id)
-        return True
-    else:
-        return False
+def lock(chat_id: int, action: sem) -> bool:
+    match action:
+        case sem.lock:
+            if chat_id not in lockedList:
+                lockedList.append(chat_id)
+                return True
+        case sem.unlock:
+            if chat_id in lockedList:
+                lockedList.remove(chat_id)
+                return True
+    return False
 
 
 all_handler = CommandHandler('all', all)
-start_handler = CommandHandler('start', help)
-help_handler = CommandHandler('help', help)
-
+help_handler = CommandHandler(['start', 'help'], help)
 
 dispatcher.add_handler(all_handler)
-dispatcher.add_handler(start_handler)
 dispatcher.add_handler(help_handler)
 
 updater.start_polling()
