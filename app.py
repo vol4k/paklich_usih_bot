@@ -42,12 +42,12 @@ def help(update: Update, context: CallbackContext):
 
 
 
-def get_tag_messages(update: Update, custom_titles: list[str] = []) -> list[str]:
+def get_tag_messages(update: Update, custom_titles: str) -> list[str]:
     mentionMessages = [""]
     mentionCounter = 0
 
     for administrator in update.effective_chat.get_administrators():
-        if administrator.user.is_bot or custom_titles and administrator.custom_title not in custom_titles:
+        if administrator.user.is_bot or not has_coincidence(custom_titles, administrator.custom_title): ###
             continue
 
         mentionMessages[-1] += f"[⭐️](tg://user?id={administrator.user.id})"
@@ -64,11 +64,11 @@ def get_tag_messages(update: Update, custom_titles: list[str] = []) -> list[str]
 
 def try_call(update: Update, context: CallbackContext):
     messages: list[Message] = []
-    custom_titles: list[str] = []
+    custom_titles: str = ""
 
     if context.args:
-        custom_titles = ' '.join(context.args).split(', ')
-        
+        custom_titles = ' '.join(context.args)
+
     tagMessages = get_tag_messages(update, custom_titles)
 
     try:
@@ -122,6 +122,12 @@ def lock(chat_id: int, action: sem) -> bool:
                 lockedList.remove(chat_id)
                 return True
     return False
+
+
+def has_coincidence(tagsToSearch: str, userTags: str) -> bool:
+    if not tagsToSearch:
+        return False
+    return [tag for tag in tagsToSearch.split(', ') if tag in userTags.split(', ')] != []
 
 
 all_handler = CommandHandler('all', all)
