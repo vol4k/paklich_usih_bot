@@ -47,7 +47,7 @@ def get_tag_messages(update: Update, custom_titles: str) -> list[str]:
     mentionCounter = 0
 
     for administrator in update.effective_chat.get_administrators():
-        if administrator.user.is_bot or not has_coincidence(custom_titles, administrator.custom_title): ###
+        if administrator.user.is_bot or custom_titles and not has_coincidence(custom_titles, administrator.custom_title): ###
             continue
 
         mentionMessages[-1] += f"[⭐️](tg://user?id={administrator.user.id})"
@@ -64,7 +64,7 @@ def get_tag_messages(update: Update, custom_titles: str) -> list[str]:
 
 def try_call(update: Update, context: CallbackContext):
     messages: list[Message] = []
-    custom_titles: str = ""
+    custom_titles: str = None
 
     if context.args:
         custom_titles = ' '.join(context.args)
