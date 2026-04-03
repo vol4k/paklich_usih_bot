@@ -3,13 +3,16 @@ from threading import Thread
 
 from telegram import Message, Update, constants
 from telegram.ext import Updater, CallbackContext, CommandHandler
+from dotenv import load_dotenv
 
-import enum, json, logging
+import enum, json, logging, os
+
+load_dotenv()
 
 LANGUAGE = "be"
-PREFERENSES = json.load(open("config.json"))
-TOKEN = PREFERENSES["token"]
-MESSAGE = PREFERENSES["messages"][LANGUAGE]
+PREFERENCES = json.load(open("config.json"))
+TOKEN = os.getenv("TOKEN")
+MESSAGE = PREFERENCES["messages"][LANGUAGE]
 
 MAX_MENTION_COUNT = 5 # max count of mentions in one message
 
